@@ -1,0 +1,54 @@
+name: bump
+on:
+  workflow_dispatch:
+    inputs:
+      tenant:
+        required: true
+      pin:
+        required: false
+        default: ""
+      action:
+        required: true
+        default: bump
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: act
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TENANT: ${{ inputs.tenant }}
+          PIN: ${{ inputs.pin }}
+          ACTION: ${{ inputs.action }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          br="bot/${TENANT}"
+          case "$ACTION" in
+            bump)
+              if git ls-remote --exit-code origin "refs/heads/$br" >/dev/null; then git checkout -B "$br" "origin/$br"; else git checkout -B "$br" origin/main; fi
+              mkdir -p "tenants/$TENANT"
+              echo "commit: $PIN" > "tenants/$TENANT/app.yaml"
+              git add -A
+              git commit -m "Pin $TENANT to $PIN"
+              git push origin "$br"
+              gh pr view "$br" >/dev/null 2>&1 || gh pr create --base main --head "$br" --title "Pin $TENANT" --body "Test bump"
+              ;;
+            update-merge)
+              n=$(gh pr view "$br" --json number -q .number)
+              gh api -X PUT "repos/$REPO/pulls/$n/update-branch"
+              ;;
+            update-rebase)
+              id=$(gh pr view "$br" --json id -q .id)
+              gh api graphql -f query='mutation($id:ID!){updatePullRequestBranch(input:{pullRequestId:$id,updateMethod:REBASE}){pullRequest{headRefOid}}}' -f id="$id"
+              ;;
+            *) echo "unknown action $ACTION"; exit 1 ;;
+          esac
