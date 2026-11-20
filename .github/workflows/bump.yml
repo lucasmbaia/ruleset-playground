@@ -18,8 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: act
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,12 +32,13 @@ jobs:
           br="bot/${TENANT}"
           case "$ACTION" in
             bump)
-              if git ls-remote --exit-code origin "refs/heads/$br" >/dev/null; then git checkout -B "$br" "origin/$br"; else git checkout -B "$br" origin/main; fi
-              mkdir -p "tenants/$TENANT"
-              echo "commit: $PIN" > "tenants/$TENANT/app.yaml"
-              git add -A
-              git commit -m "Pin $TENANT to $PIN"
-              git push origin "$br"
+              main_sha=$(gh api "repos/$REPO/git/ref/heads/main" -q .object.sha)
+              if ! gh api "repos/$REPO/git/ref/heads/$br" >/dev/null 2>&1; then
+                gh api -X POST "repos/$REPO/git/refs" -f ref="refs/heads/$br" -f sha="$main_sha" >/dev/null
+              fi
+              head=$(gh api "repos/$REPO/git/ref/heads/$br" -q .object.sha)
+              content=$(printf 'commit: %s\n' "$PIN" | base64 -w0)
+              gh api graphql -f query='mutation($repo:String!,$br:String!,$head:GitObjectID!,$path:String!,$content:Base64String!,$msg:String!){createCommitOnBranch(input:{branch:{repositoryNameWithOwner:$repo,branchName:$br},expectedHeadOid:$head,message:{headline:$msg},fileChanges:{additions:[{path:$path,contents:$content}]}}){commit{oid}}}' -f repo="$REPO" -f br="$br" -f head="$head" -f path="tenants/$TENANT/app.yaml" -f content="$content" -f msg="Pin $TENANT to $PIN"
               gh pr view "$br" >/dev/null 2>&1 || gh pr create --base main --head "$br" --title "Pin $TENANT" --body "Test bump"
               ;;
             update-merge)
