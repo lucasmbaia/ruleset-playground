@@ -39,14 +39,14 @@ jobs:
               head=$(gh api "repos/$REPO/git/ref/heads/$br" -q .object.sha)
               content=$(printf 'commit: %s\n' "$PIN" | base64 -w0)
               gh api graphql -f query='mutation($repo:String!,$br:String!,$head:GitObjectID!,$path:String!,$content:Base64String!,$msg:String!){createCommitOnBranch(input:{branch:{repositoryNameWithOwner:$repo,branchName:$br},expectedHeadOid:$head,message:{headline:$msg},fileChanges:{additions:[{path:$path,contents:$content}]}}){commit{oid}}}' -f repo="$REPO" -f br="$br" -f head="$head" -f path="tenants/$TENANT/app.yaml" -f content="$content" -f msg="Pin $TENANT to $PIN"
-              gh pr view "$br" >/dev/null 2>&1 || gh pr create --base main --head "$br" --title "Pin $TENANT" --body "Test bump"
+              [ "$(gh pr list --head "$br" --state open --json number -q length)" != "0" ] || gh pr create --base main --head "$br" --title "Pin $TENANT" --body "Test bump"
               ;;
             update-merge)
-              n=$(gh pr view "$br" --json number -q .number)
+              n=$(gh pr list --head "$br" --state open --json number -q ".[0].number")
               gh api -X PUT "repos/$REPO/pulls/$n/update-branch"
               ;;
             update-rebase)
-              id=$(gh pr view "$br" --json id -q .id)
+              id=$(gh pr list --head "$br" --state open --json id -q ".[0].id")
               gh api graphql -f query='mutation($id:ID!){updatePullRequestBranch(input:{pullRequestId:$id,updateMethod:REBASE}){pullRequest{headRefOid}}}' -f id="$id"
               ;;
             *) echo "unknown action $ACTION"; exit 1 ;;
